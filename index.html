@@ -2102,6 +2102,28 @@
     }
     window.leaveLobby = leaveLobby;
 
+    // Universal exit — works in any phase, for host or player, never depends on others.
+    // Just detaches THIS device and returns to landing; does not delete the room for the host.
+    function leaveGame() {
+      showModal({
+        title: "⚠ ВИЙТИ З ГРИ?",
+        color: "red",
+        body: "Покинути цю гру і повернутись на головний екран?<br><br><i style='font-size: 12px;'>Інші гравці залишаться у грі. Ти зможеш повернутись за кодом кімнати, поки кімната існує.</i>",
+        buttons: [
+          { label: "✓ ТАК, ВИЙТИ", onClick: () => {
+              closeModal();
+              unsubscribeRoom();
+              clearSession();
+              state.gs = null; state.roomCode = ""; state.myId = null; state.isHost = false;
+              goTo("landing");
+            }
+          },
+          { label: "СКАСУВАТИ", onClick: closeModal },
+        ]
+      });
+    }
+    window.leaveGame = leaveGame;
+
     // ─── Lobby render ──────────────────────────────────────────────
     function renderHostLobby() {
       const gs = state.gs; if (!gs) return;
@@ -3379,6 +3401,19 @@
       const isHost = state.isHost;
       const contentDivId = isHost ? "host-game-content" : "player-game-content";
 
+      // Fallback auto-trigger: if host is sitting on an "ended" phase with no threat rolled
+      // and no pending timer (e.g. after a reload that cancelled the original setTimeout),
+      // kick off the threat so the game never softlocks.
+      if (isHost && gs.phase === "ended" && !gs.threatCardId && !state.threatTriggerPending) {
+        state.threatTriggerPending = true;
+        setTimeout(() => {
+          state.threatTriggerPending = false;
+          if (state.gs?.phase === "ended" && !state.gs.threatCardId) {
+            hostAction("start_threat");
+          }
+        }, 3000);
+      }
+
       let h = `<div class="header-game">
           <div>
             <div class="lbl">КІМНАТА: <b style="color: var(--amber); letter-spacing: 4px;">${state.roomCode}</b></div>
@@ -3551,6 +3586,13 @@
           </div>
           <div style="margin-top: 12px; text-align: center; font-size: 24px; color: var(--purple);">⚠ ⚠ ⚠</div>
         </div>`;
+        // Safety: if the auto-trigger got stuck (host reloaded / lost connection),
+        // give the host a manual button to roll the threat, and everyone an exit.
+        if (isHost) {
+          h += `<button class="btn btn-purple btn-sm" onclick="hostAction('start_threat')" style="margin-top: 14px;">⚠ ЗАПУСТИТИ КАРТУ ЗАГРОЗИ</button>`;
+          h += `<button class="btn btn-ghost btn-sm" onclick="hostAction('new_game')">↺ ПОЧАТИ НОВУ ГРУ</button>`;
+        }
+        h += `<button class="btn btn-ghost btn-sm" onclick="leaveGame()" style="border-color: rgba(226,75,74,0.3); color: var(--red);">⬅ ВИЙТИ НА ГОЛОВНУ</button>`;
       }
       else if (gs.phase === "survival") {
         // Resolve threat card from local array (Firebase stores only id, not the regex patterns)
@@ -3612,6 +3654,7 @@
           if (isHost) {
             h += `<button class="btn btn-ghost btn-sm" onclick="hostAction('new_game')" style="margin-top: 14px;">↺ ПОЧАТИ НОВУ ГРУ</button>`;
           }
+          h += `<button class="btn btn-ghost btn-sm" onclick="leaveGame()" style="${isHost ? '' : 'margin-top: 14px;'} border-color: rgba(226,75,74,0.3); color: var(--red);">⬅ ВИЙТИ НА ГОЛОВНУ</button>`;
         }
       }
 
